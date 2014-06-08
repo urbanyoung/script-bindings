@@ -2,6 +2,7 @@
 #include <tuple>
 #include <stdexcept>
 #include <string>
+#include <boost/optional.hpp>
 #include "../lua-5.2.3/src/lua.hpp"
 
 using std::cout;
@@ -102,13 +103,6 @@ namespace TupleHelpers {
 	}
 };
 
-template <typename T>
-struct Nilable
-{
-	bool set;
-	T x;
-};
-
 template <typename... ResultTypes>
 class LuaCaller {
 private:
@@ -121,7 +115,7 @@ public:
 	LuaCaller() {
 		l = luaL_newstate();
 		if (luaL_dostring(l, "							function test_func(a, b, c) \
-							 									return a, b, c \
+							 									return a, b, c, 9 \
 														end"))
 		{
 			std::string error = lua_tostring(l, -1);
@@ -175,14 +169,15 @@ public:
 		}
 
 		template <typename Y>
-		void operator()(lua_State* l, Nilable<Y>& x) {
+		void operator()(lua_State* l, boost::optional<Y>& x) {
 			cout << "nilable" << endl;
 			if (lua_type(l, -1) == LUA_TNIL) {
-				x.set = false;
+				//x.set = false;
 				lua_pop(l, 1);
 			} else {
-				x.set = true;
-				operator()(l, x.x);
+				Y val;
+				operator()(l, val);
+				x = val;
 			}
 		}
 	};
@@ -216,11 +211,11 @@ int main() {
 		int i1;
 		double d1;
 		float f1;
-		Nilable<int> optInt;
-		LuaCaller<int, double, float, Nilable<int>> c;
+		boost::optional<int> optInt;
+		LuaCaller<int, double, float, boost::optional<int>> c;
 		std::tie(i1, d1, f1, optInt) = c.call("test_func", std::make_tuple(1, 2, 3));
 		cout << i1 << " " << d1 << " " << f1 << endl;
-		if (optInt.set) cout << "opt: " << optInt.x << endl;
+		if (optInt) cout << "opt: " << *optInt << endl;
 	} catch (std::exception& e) {
 		cout << e.what() << endl;
 	}
