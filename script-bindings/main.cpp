@@ -103,105 +103,148 @@ namespace TupleHelpers {
 	}
 };
 
-template <typename... ResultTypes>
-class LuaCaller {
-private:
-	static const size_t nresults = sizeof...(ResultTypes);
-
-	lua_State* l;
-
+class LuaException : public std::exception {
+	const std::string msg;
 public:
-
-	LuaCaller() {
-		l = luaL_newstate();
-		if (luaL_dostring(l, "							function test_func(a, b, c) \
-							 									return a, b, c, 9 \
-														end"))
-		{
-			std::string error = lua_tostring(l, -1);
-			lua_pop(l, 1);
-
-			throw std::exception(error.c_str());
-		}
+	explicit LuaException(const std::string& what)
+		: msg("lua_exception: " + what)
+	{
 	}
-		
-	//LuaCaller(function_handle);
 
+	virtual const char* what() const override {
+		return msg.c_str();
+	}
+};
+
+namespace LuaHelpers {
 	template <typename T>
 	struct Push {
-		void operator()(lua_State* l, bool x) {
-			lua_pushboolean(l, x);
+		void operator()(lua_State* L, bool x) {
+			lua_pushboolean(L, x);
 		}
-		void operator()(lua_State* l, int x) {
-			lua_pushnumber(l, x);
+		void operator()(lua_State* L, int x) {
+			lua_pushnumber(L, x);
 		}
-		void operator()(lua_State* l, double x) {
-			lua_pushnumber(l, x);
+		void operator()(lua_State* L, double x) {
+			lua_pushnumber(L, x);
 		}
-		void operator()(lua_State* l, const char* x) {
-			lua_pushstring(l, x);
+		void operator()(lua_State* L, const char* x) {
+			lua_pushstring(L, x);
 		}
-		void operator()(lua_State* l, const std::string& x) {
-			lua_pushstring(l, x.c_str());
+		void operator()(lua_State* L, const std::string& x) {
+			lua_pushstring(L, x.c_str());
 		}
 	};
 
 	template <typename T>
 	struct Pop {
-		/*void operator()(lua_State* l, T& x) {
-			x = static_cast<T>(lua_tonumber(l, -1));
-			lua_pop(l, 1);
-		}*/
-
-		void operator()(lua_State* l, double& x) {
-			x = static_cast<double>(lua_tonumber(l, -1));
-			lua_pop(l, 1);
+		void operator()(lua_State* L, double& x) {
+			x = static_cast<double>(lua_tonumber(L, -1));
+			lua_pop(L, 1);
 		}
 
-		void operator()(lua_State* l, int& x) {
-			x = static_cast<int>(lua_tonumber(l, -1));
-			lua_pop(l, 1);
+		void operator()(lua_State* L, int& x) {
+			x = static_cast<int>(lua_tonumber(L, -1));
+			lua_pop(L, 1);
 		}
 
-		void operator()(lua_State* l, float& x) {
-			x = static_cast<float>(lua_tonumber(l, -1));
-			lua_pop(l, 1);
+		void operator()(lua_State* L, float& x) {
+			x = static_cast<float>(lua_tonumber(L, -1));
+			lua_pop(L, 1);
 		}
 
 		template <typename Y>
-		void operator()(lua_State* l, boost::optional<Y>& x) {
-			cout << "nilable" << endl;
-			if (lua_type(l, -1) == LUA_TNIL) {
-				//x.set = false;
-				lua_pop(l, 1);
+		void operator()(lua_State* L, boost::optional<Y>& x) {
+			if (lua_type(L, -1) == LUA_TNIL) {
+				lua_pop(L, 1);
 			} else {
 				Y val;
-				operator()(l, val);
+				operator()(L, val);
 				x = val;
 			}
 		}
 	};
+}
+
+struct LuaState  {
+	lua_State* L;
+
+	LuaState() {
+		L = luaL_newstate();
+		if (!L) // only NULL if memory error
+			throw std::bad_alloc();
+		luaL_openlibs(L);
+	}
+
+	~LuaState() {
+		lua_close(L);
+	}
+
+	operator lua_State*() { return L; }
+
+	void doFile(const std::string& file) {
+		if (luaL_dofile(L, file.c_str())) {
+			std::string error = lua_tostring(L, -1);
+			lua_pop(L, 1);
+			throw LuaException(error);
+		}
+	}
+
+	void pcall(int nargs, int nresults) {
+		if (lua_pcall(L, nargs, nresults, 0))
+		{
+			std::string error = lua_tostring(L, -1);
+			lua_pop(L, 1);
+			throw LuaException(error);
+		}
+	}
+
+	template <typename T>
+	void setGlobal(const std::string& name, const T& value) {
+		LuaHelpers::Push<T> p;
+		p(L, value);
+		lua_setglobal(L, name.c_str());
+	}
+
+	template <typename T>
+	boost::optional<T> getGlobal(const std::string& name) {
+		boost::optional<T> result;
+		LuaHelpers::Pop<T> p;
+		p(L, result);
+		return result;
+	}
+};
+
+template <typename... ResultTypes>
+class LuaCaller {
+private:
+	static const size_t nresults = sizeof...(ResultTypes);
+
+	LuaState& L;
+
+public:
+
+	LuaCaller(LuaState& L)
+		: L(L)
+	{}
 
 	template <typename... ArgTypes> 
 	std::tuple<ResultTypes...> call(const std::string& func, const std::tuple<ArgTypes...>& args) {
-		int top = lua_gettop(l);
-		lua_getglobal(l, func.c_str());
-		if (lua_type(l, -1) == LUA_TNIL) throw std::exception("no func...");
+		lua_getglobal(L, func.c_str());
+		if (lua_type(L, -1) != LUA_TFUNCTION) {
+			lua_pop(L, 1);
+			throw LuaException("attempt to call non-function entity");
+		}
 
 		size_t nargs = sizeof...(ArgTypes);
 		size_t nresults = sizeof...(ResultTypes);
 		
-		TupleHelpers::citerate<TupleHelpers::forward_comparator, Push>(l, args);
+		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(L, args);
 
-		if (lua_pcall(l, nargs, nresults, 0))
-		{
-			std::string error = lua_tostring(l, -1);
-			lua_pop(l, 1);
-			throw std::exception(error.c_str());
-		}
+		L.pcall(nargs, nresults);
 
 		std::tuple<ResultTypes...> results;
-		TupleHelpers::iterate<TupleHelpers::reverse_comparator, Pop>(l, results);
+		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, results);
 		return results;
 	}
 };
@@ -212,7 +255,11 @@ int main() {
 		double d1;
 		float f1;
 		boost::optional<int> optInt;
-		LuaCaller<int, double, float, boost::optional<int>> c;
+
+		LuaState state;
+		state.doFile("../test.lua");
+		state.setGlobal("phasor_version", 202);
+		LuaCaller<int, double, float, boost::optional<int>> c(state);
 		std::tie(i1, d1, f1, optInt) = c.call("test_func", std::make_tuple(1, 2, 3));
 		cout << i1 << " " << d1 << " " << f1 << endl;
 		if (optInt) cout << "opt: " << *optInt << endl;
