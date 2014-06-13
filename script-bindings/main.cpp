@@ -142,26 +142,30 @@ namespace LuaHelpers {
 
 		LuaAnyRef()
 			: L(nullptr), ref(LUA_NOREF)
-		{
-			cout << "LuaAnyRef" << endl;
-		}
+		{}
+
+		// Non-copyable
+		LuaAnyRef(const LuaAnyRef&) = delete;
+		LuaAnyRef& operator=(const LuaAnyRef&) = delete;
 
 		LuaAnyRef(LuaAnyRef&& other)
 			: L(std::move(other.L)), ref(std::move(other.ref))
-		{}
+		{
+			other.L = 0; other.ref = 0;
+		}
+
 		LuaAnyRef& operator=(LuaAnyRef&& other) {
 			L = std::move(other.L);
 			ref = std::move(other.ref);
+			other.L = 0;
+			other.ref = 0;
 			return *this;
 		}
 		
-		LuaAnyRef(const LuaAnyRef&) = delete;
-		LuaAnyRef& operator=(const LuaAnyRef&) = delete;
-		
 		~LuaAnyRef() {
-			cout << "~LuaAnyRef" << endl;
-			if (L)
+			if (L) {
 				luaL_unref(L, LUA_REGISTRYINDEX, ref);
+			}
 		}
 
 		void push(lua_State* L) const {
@@ -391,13 +395,10 @@ public:
 
 		L.pcall(nargs, nresults);
 
-		cout << "tuple" << endl;
 		std::tuple<ResultTypes...> results;
 		LuaHelpers::Pop p(nresults, LuaHelpers::Pop::e_mode::kRet);
-		cout << "iterate" << endl;
 		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, results, p);
 		err = p.err;
-		cout << "return" << endl;
 		return results;
 	}
 };
@@ -487,30 +488,30 @@ int test(lua_State* L) {
 	cout << t << " " << *b << " " << (b1 ? "true" : "false") << " " << *opt_ul << endl;
 	return LuaCallback::pushReturns(L, std::make_tuple("some string", 5, 6));
 }
+
 std::vector<LuaCallback::CFunc> funcTable = {{"test", &test}, {"test1", &test}};
 
 int main() {
 
 	try {
+		LuaState state;
+		LuaCallback::registerFunctions(state, funcTable.cbegin(), funcTable.cend());
+
 		std::string i1;
 		double d1;
 		float f1;
 		boost::optional<int> optInt;
 		LuaHelpers::LuaAnyRef r;
-//		cout << "non-optional: " << LuaCallback::countNonOptional(std::make_tuple(4, 5, 6, boost::optional<int>(7))) << endl;
-
-		LuaState state;
-		LuaCallback::registerFunctions(state, funcTable.cbegin(), funcTable.cend());
 
 		state.doFile("../test.lua");
 		//state.setGlobal("phasor_version", 202);
 		LuaCaller<std::string, double, float, LuaHelpers::LuaAnyRef, boost::optional<int>> c(state);
-		cout << "calling" << endl;
 		std::tie(i1, d1, f1, r, optInt) = c.call("test_func", std::make_tuple(1, 2, 3));
-		cout << "called" << endl;
 		if (!c.hasError()) {
 			cout << i1 << " " << d1 << " " << f1 << endl;
 			if (optInt) cout << "opt: " << *optInt << endl;
+
+			c.call("test_func1", std::make_tuple(std::ref(r)));
 		} else {
 			cout << "return values ignored" << endl;
 		}
