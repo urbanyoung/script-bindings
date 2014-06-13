@@ -58,10 +58,22 @@ namespace TupleHelpers {
 		class F,
 		typename... Tp
 	>
-	inline void citerate(lua_State* l, const std::tuple<Tp...>& t, F& f = F())
+    inline void citerate(lua_State* l, const std::tuple<Tp...>& t, F& f)
 	{
 		citerate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
 	}
+
+    template<
+        template<std::size_t, typename...>class Comparator,
+        class F,
+        typename... Tp
+    >
+    inline void citerate(lua_State* l, const std::tuple<Tp...>& t)
+    {
+        F f;
+        citerate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
+    }
+
 
 	// ---------------------------------------------------
 	/* couldn't get const versions working... easy fix, for now */
@@ -95,10 +107,21 @@ namespace TupleHelpers {
 		class F,
 		typename... Tp
 	>
-	inline void iterate(lua_State* l, std::tuple<Tp...>& t, F& f = F())
+    inline void iterate(lua_State* l, std::tuple<Tp...>& t, F& f)
 	{
 		iterate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
 	}
+
+    template<
+        template<std::size_t, typename...>class Comparator,
+        class F,
+        typename... Tp
+    >
+    inline void iterate(lua_State* l, std::tuple<Tp...>& t)
+    {
+        F f;
+        iterate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
+    }
 };
 
 class LuaException : public std::exception {
@@ -193,10 +216,6 @@ namespace LuaHelpers {
 			lua_pushnumber(L, x);
 		}
 
-		template <> void operator()<bool>(lua_State* L, const bool& x) {
-			lua_pushboolean(L, x);
-		}
-
 		void operator()(lua_State* L, const LuaAnyRef& x) {
 			x.push(L);
 		}
@@ -208,6 +227,10 @@ namespace LuaHelpers {
 			lua_pushstring(L, x.c_str());
 		}
 	};
+
+    template <> void Push::operator()<bool>(lua_State* L, const bool& x) {
+        lua_pushboolean(L, x);
+    }
 
 	struct Pop {
 		enum class e_mode {
@@ -270,13 +293,6 @@ namespace LuaHelpers {
 			pop_number_or_bool(L, x);
 		}
 
-		template <> void operator()<bool>(lua_State* L, bool& x)
-		{
-			int x1;
-			pop_number_or_bool(L, x1);
-			x = x1 == 1;
-		}
-
 		void operator()(lua_State* L, std::string& x) {
 			int ltype = lua_type(L, -1);
 			switch (ltype) {
@@ -312,6 +328,13 @@ namespace LuaHelpers {
 			}
 		}
 	};
+
+    template <> void Pop::operator()<bool>(lua_State* L, bool& x) {
+        int x1;
+        pop_number_or_bool(L, x1);
+        x = (x1 == 1);
+    }
+
 }
 
 struct LuaState  {
@@ -428,18 +451,18 @@ namespace LuaCallback {
 		static const bool value = N > 0;
 	};
 
+    template <std::size_t N, typename... T>
+    size_t count_optional(const std::tuple<T...>&,
+        typename std::enable_if<!more_than_zero<N>::value>::type* = 0) {
+        return 0;
+    }
+
 	template <std::size_t N, typename... T>
 	size_t count_optional(const std::tuple<T...>& x,
 		typename std::enable_if<more_than_zero<N>::value>::type* = 0) {
 		auto c = do_count(std::get<N-1>(x));
 		if (c == 0) return 0;
 		return 1 + count_optional<N - 1, T...>(x);
-	}
-
-	template <std::size_t N, typename... T>
-	size_t count_optional(const std::tuple<T...>& x,
-		typename std::enable_if<!more_than_zero<N>::value>::type* = 0) {
-		return 0;
 	}
 
 	template <typename... T>
