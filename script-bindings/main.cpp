@@ -192,7 +192,7 @@ namespace LuaHelpers {
 		}
 
 		void push(lua_State* L) const {
-			assert(L == this->L);
+			assert(L == nullptr || L == this->L);
 			lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
 		}
 
@@ -208,6 +208,8 @@ namespace LuaHelpers {
 	// ------------------------------------------------------------------------------
 	//
 
+	struct LuaNil {};
+
 	struct Push {
 		template <typename T>
 		typename std::enable_if<std::is_arithmetic<T>::value, void>::type
@@ -218,6 +220,10 @@ namespace LuaHelpers {
 
 		void operator()(lua_State* L, const LuaAnyRef& x) {
 			x.push(L);
+		}
+
+		void operator()(lua_State* L, const LuaNil&) {
+			lua_pushnil(L);
 		}
 
 		void operator()(lua_State* L, const char* x) {
@@ -509,7 +515,7 @@ int test(lua_State* L) {
 	boost::optional<unsigned long> opt_ul;
 	std::tie(t, b, b1, opt_ul) = LuaCallback::getArguments<int, boost::optional<std::string>, bool, decltype(opt_ul)>(L, __FUNCTION__);
 	cout << t << " " << *b << " " << (b1 ? "true" : "false") << " " << *opt_ul << endl;
-	return LuaCallback::pushReturns(L, std::make_tuple("some string", 5, 6));
+	return LuaCallback::pushReturns(L, std::make_tuple("some string", 5, 6, LuaHelpers::LuaNil()));
 }
 
 std::vector<LuaCallback::CFunc> funcTable = {{"test", &test}, {"test1", &test}};
