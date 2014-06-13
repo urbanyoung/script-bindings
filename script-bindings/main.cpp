@@ -134,17 +134,69 @@ namespace LuaHelpers {
 	}
 	//
 	// ------------------------------------------------------------------------------
-	
+	//
+	// Reference to any Lua type, stored within the Lua VM
+	struct LuaAnyRef {
+		lua_State* L;
+		int ref;
+
+		LuaAnyRef()
+			: L(nullptr), ref(LUA_NOREF)
+		{
+			cout << "LuaAnyRef" << endl;
+		}
+
+		LuaAnyRef(LuaAnyRef&& other)
+			: L(std::move(other.L)), ref(std::move(other.ref))
+		{}
+		LuaAnyRef& operator=(LuaAnyRef&& other) {
+			L = std::move(other.L);
+			ref = std::move(other.ref);
+			return *this;
+		}
+		
+		LuaAnyRef(const LuaAnyRef&) = delete;
+		LuaAnyRef& operator=(const LuaAnyRef&) = delete;
+		
+		~LuaAnyRef() {
+			cout << "~LuaAnyRef" << endl;
+			if (L)
+				luaL_unref(L, LUA_REGISTRYINDEX, ref);
+		}
+
+		void push(lua_State* L) const {
+			assert(L == this->L);
+			lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+		}
+
+		void pop(lua_State* L) {
+			if (this->L)
+				luaL_unref(this->L, LUA_REGISTRYINDEX, ref);
+			this->L = L;			
+			ref = luaL_ref(L, LUA_REGISTRYINDEX);
+		}
+	};
+
+	//
+	// ------------------------------------------------------------------------------
+	//
+
 	struct Push {
-		void operator()(lua_State* L, bool x) {
+		template <typename T>
+		typename std::enable_if<std::is_arithmetic<T>::value, void>::type
+			operator()(lua_State* L, const T& x)
+		{
+			lua_pushnumber(L, x);
+		}
+
+		template <> void operator()<bool>(lua_State* L, const bool& x) {
 			lua_pushboolean(L, x);
 		}
-		void operator()(lua_State* L, int x) {
-			lua_pushnumber(L, x);
+
+		void operator()(lua_State* L, const LuaAnyRef& x) {
+			x.push(L);
 		}
-		void operator()(lua_State* L, double x) {
-			lua_pushnumber(L, x);
-		}
+
 		void operator()(lua_State* L, const char* x) {
 			lua_pushstring(L, x);
 		}
@@ -154,49 +206,32 @@ namespace LuaHelpers {
 	};
 
 	struct Pop {
-		void operator()(lua_State* L, double& x) {
-			x = static_cast<double>(lua_tonumber(L, -1));
-			lua_pop(L, 1);
-		}
+		enum class e_mode {
+			kArg,
+			kRet
+		};
 
-		void operator()(lua_State* L, int& x) {
-			x = static_cast<int>(lua_tonumber(L, -1));
-			lua_pop(L, 1);
-		}
+		int n;
+		e_mode mode;
+		bool err;
 
-		void operator()(lua_State* L, float& x) {
-			x = static_cast<float>(lua_tonumber(L, -1));
-			lua_pop(L, 1);
-		}
-
-		template <typename Y>
-		void operator()(lua_State* L, boost::optional<Y>& x) {
-			if (lua_type(L, -1) == LUA_TNIL) {
-				lua_pop(L, 1);
-			} else {
-				Y val;
-				operator()(L, val);
-				x = val;
-			}
-		}
-	};
-
-	struct PopChecked {
-		int narg;
-
-		PopChecked(int narg)
-			: narg(narg)
+		Pop(int n, e_mode mode)
+			: n(n), mode(mode), err(false)
 		{}
 
 		template <typename Y>
 		void raise_error(lua_State* L, int got) {
-			auto f = boost::format("expected %s, got %s") % ctype_name<Y>() % lua_typename(L, got);
-			luaL_argerror(L, narg, f.str().c_str());
+			if (mode == e_mode::kArg) {
+				auto f = boost::format("expected %s, got %s") % ctype_name<Y>() % lua_typename(L, got);
+				luaL_argerror(L, n, f.str().c_str());
+			} else {
+				err = true;
+			}
 		}
 
 		void pop(lua_State* L) {
 			lua_pop(L, 1);
-			narg--;
+			n--;
 		}
 
 		template <typename Y>
@@ -224,16 +259,18 @@ namespace LuaHelpers {
 			pop(L);
 		}
 
-		void operator()(lua_State* L, double& x) {
+		template <typename T>
+		typename std::enable_if<std::is_arithmetic<T>::value, void>::type 
+			operator()(lua_State* L, T& x)
+		{			
 			pop_number_or_bool(L, x);
 		}
 
-		void operator()(lua_State* L, int& x) {
-			pop_number_or_bool(L, x);
-		}
-
-		void operator()(lua_State* L, float& x) {
-			pop_number_or_bool(L, x);
+		template <> void operator()<bool>(lua_State* L, bool& x)
+		{
+			int x1;
+			pop_number_or_bool(L, x1);
+			x = x1 == 1;
 		}
 
 		void operator()(lua_State* L, std::string& x) {
@@ -253,6 +290,11 @@ namespace LuaHelpers {
 				raise_error<std::string>(L, ltype);
 			}
 			pop(L);
+		}
+
+		void operator()(lua_State* L, LuaAnyRef& r) {
+			r.pop(L);
+			n--;
 		}
 
 		template <typename Y>
@@ -321,12 +363,18 @@ class LuaCaller {
 private:
 	static const size_t nresults = sizeof...(ResultTypes);
 	LuaState& L;
+	bool err;
 
 public:
 
 	LuaCaller(LuaState& L)
-		: L(L)
+		: L(L), err(false)
 	{}
+
+	// whether or not an error occurred popping return values
+	bool hasError() const {
+		return err;
+	}
 
 	template <typename... ArgTypes> 
 	std::tuple<ResultTypes...> call(const std::string& func, const std::tuple<ArgTypes...>& args) {
@@ -343,35 +391,31 @@ public:
 
 		L.pcall(nargs, nresults);
 
+		cout << "tuple" << endl;
 		std::tuple<ResultTypes...> results;
-		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, results);
+		LuaHelpers::Pop p(nresults, LuaHelpers::Pop::e_mode::kRet);
+		cout << "iterate" << endl;
+		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, results, p);
+		err = p.err;
+		cout << "return" << endl;
 		return results;
 	}
 };
 
 namespace LuaCallback {
-	typedef void(*prototype)(lua_State*);
 	struct CFunc {
 		const char* name;
-		prototype func;
+		lua_CFunction func;
 	};
-
-	static int invokeCFunction(lua_State* L) {
-		prototype f = static_cast<prototype>(lua_touserdata(L, lua_upvalueindex(1)));
-		f(L);
-		return 0;
-	}
 
 	template <class Itr>
 	static void registerFunctions(lua_State* L, Itr itr, const Itr end) {
 		for (; itr != end; ++itr) {
-			lua_pushlightuserdata(L, itr->func);
-			lua_pushcclosure(L, &invokeCFunction, 1);
-			lua_setglobal(L, itr->name);
+			lua_register(L, itr->name, itr->func);
 		}
 	}
 	
-	// Counts number of non-boost::optional<> parameters (starting from end).
+	// Counts number of boost::optional<> parameters (starting from end).
 	// -------------------------------------------------------------------------------------
 	//
 	template <typename Y>
@@ -386,7 +430,9 @@ namespace LuaCallback {
 	template <std::size_t N, typename... T>
 	size_t count_optional(const std::tuple<T...>& x,
 		typename std::enable_if<more_than_zero<N>::value>::type* = 0) {
-		return do_count(std::get<N-1>(x)) + count_optional<N - 1, T...>(x);
+		auto c = do_count(std::get<N-1>(x));
+		if (c == 0) return 0;
+		return 1 + count_optional<N - 1, T...>(x);
 	}
 
 	template <std::size_t N, typename... T>
@@ -412,7 +458,7 @@ namespace LuaCallback {
 		if (nargs < nrequired) {
 			luaL_error(L, "'%s' expects at least %d argument(s) (got %d)", funcname, nrequired, nargs);
 		} else if (nargs > nrequired + noptional) {
-			luaL_error(L, "'%s' expects at most %d argument(s) (got %d)", funcname, nrequired, nargs);
+			luaL_error(L, "'%s' expects at most %d argument(s) (got %d)", funcname, noptional + nrequired, nargs);
 		} else {
 			size_t diff = noptional - (nargs - nrequired);
 			for (size_t x = 0; x < diff; x++)
@@ -420,30 +466,37 @@ namespace LuaCallback {
 		}
 		nargs = nrequired + noptional;
 
-		LuaHelpers::PopChecked p(nargs);
-		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::PopChecked>(L, args, p);
+		LuaHelpers::Pop p(nargs, LuaHelpers::Pop::e_mode::kArg);
+		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, args, p);
 		return args;
+	}
+
+	template <typename... Types>
+	int pushReturns(lua_State* L, const std::tuple<Types...>& t) {
+		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(L, t);
+		return sizeof...(Types);
 	}
 };
 
-void test(lua_State* L) {
+int test(lua_State* L) {
 	int t;
 	boost::optional<std::string> b;
-	std::tie(t, b) = LuaCallback::getArguments<int, boost::optional<std::string>>(L, __FUNCTION__);
-	cout << "test: " << t << " " << b << endl;
+	bool b1;
+	boost::optional<unsigned long> opt_ul;
+	std::tie(t, b, b1, opt_ul) = LuaCallback::getArguments<int, boost::optional<std::string>, bool, decltype(opt_ul)>(L, __FUNCTION__);
+	cout << t << " " << *b << " " << (b1 ? "true" : "false") << " " << *opt_ul << endl;
+	return LuaCallback::pushReturns(L, std::make_tuple("some string", 5, 6));
 }
 std::vector<LuaCallback::CFunc> funcTable = {{"test", &test}, {"test1", &test}};
 
 int main() {
-	//boost::optional<int> t;
-	//size_t n = LuaCallback::count_non_optional(std::make_tuple(4, 5, 6, t));
-	//cout << "non-optional: " << n << endl;
 
 	try {
-		int i1;
+		std::string i1;
 		double d1;
 		float f1;
 		boost::optional<int> optInt;
+		LuaHelpers::LuaAnyRef r;
 //		cout << "non-optional: " << LuaCallback::countNonOptional(std::make_tuple(4, 5, 6, boost::optional<int>(7))) << endl;
 
 		LuaState state;
@@ -451,10 +504,16 @@ int main() {
 
 		state.doFile("../test.lua");
 		//state.setGlobal("phasor_version", 202);
-		LuaCaller<int, double, float, boost::optional<int>> c(state);
-		std::tie(i1, d1, f1, optInt) = c.call("test_func", std::make_tuple(1, 2, 3));
-		cout << i1 << " " << d1 << " " << f1 << endl;
-		if (optInt) cout << "opt: " << *optInt << endl;
+		LuaCaller<std::string, double, float, LuaHelpers::LuaAnyRef, boost::optional<int>> c(state);
+		cout << "calling" << endl;
+		std::tie(i1, d1, f1, r, optInt) = c.call("test_func", std::make_tuple(1, 2, 3));
+		cout << "called" << endl;
+		if (!c.hasError()) {
+			cout << i1 << " " << d1 << " " << f1 << endl;
+			if (optInt) cout << "opt: " << *optInt << endl;
+		} else {
+			cout << "return values ignored" << endl;
+		}
 	} catch (std::exception& e) {
 		cout << e.what() << endl;
 	}
