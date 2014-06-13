@@ -184,33 +184,44 @@ namespace LuaHelpers {
 	struct PopChecked {
 		int narg;
 
-		PopChecked()
-			: narg(0)
+		PopChecked(int narg)
+			: narg(narg)
 		{}
 
 		template <typename Y>
-		void raise_error(lua_State* L, int expected) {
-			auto f = boost::format("expected %s, got %s") % ctype_name<Y>() % lua_typename(L, expected);
+		void raise_error(lua_State* L, int got) {
+			auto f = boost::format("expected %s, got %s") % ctype_name<Y>() % lua_typename(L, got);
 			luaL_argerror(L, narg, f.str().c_str());
+		}
+
+		void pop(lua_State* L) {
+			lua_pop(L, 1);
+			narg--;
 		}
 
 		template <typename Y>
 		void pop_number_or_bool(lua_State* L, Y& x) {
-			bool b;
+			const char* str;
+			char* end;
 			int ltype = lua_type(L, -1);
 			switch (ltype) {
 			case LUA_TNUMBER:
 				x = static_cast<Y>(lua_tonumber(L, -1));
 				break;
 			case LUA_TBOOLEAN: 
-				b = lua_toboolean(L, -1) == 1 ? true : false;
-				x = static_cast<Y>(b ? 1 : 0);
+				x = static_cast<Y>(lua_toboolean(L, -1));
+				break;
+			case LUA_TSTRING:
+				str = lua_tostring(L, -1);
+				x = static_cast<Y>(strtol(str, &end, 10));
+				if (*end != '\0')
+					raise_error<Y>(L, ltype);
 				break;
 			default:
 				raise_error<Y>(L, ltype);
 				break;
 			}
-			lua_pop(L, 1);
+			pop(L);
 		}
 
 		void operator()(lua_State* L, double& x) {
@@ -235,16 +246,19 @@ namespace LuaHelpers {
 			case LUA_TNUMBER:
 				x = lua_tostring(L, -1);
 				break;
+			case LUA_TNIL:
+				x = "nil";
+				break;
 			default:
 				raise_error<std::string>(L, ltype);
-
 			}
+			pop(L);
 		}
 
 		template <typename Y>
 		void operator()(lua_State* L, boost::optional<Y>& x) {
 			if (lua_type(L, -1) == LUA_TNIL) {
-				lua_pop(L, 1);
+				pop(L);
 			} else {
 				Y val;
 				operator()(L, val);
@@ -357,7 +371,7 @@ namespace LuaCallback {
 		}
 	}
 	
-	// Counts number of non-boost::optional<> parameters.
+	// Counts number of non-boost::optional<> parameters (starting from end).
 	// -------------------------------------------------------------------------------------
 	//
 	template <typename Y>
@@ -399,9 +413,14 @@ namespace LuaCallback {
 			luaL_error(L, "'%s' expects at least %d argument(s) (got %d)", funcname, nrequired, nargs);
 		} else if (nargs > nrequired + noptional) {
 			luaL_error(L, "'%s' expects at most %d argument(s) (got %d)", funcname, nrequired, nargs);
+		} else {
+			size_t diff = noptional - (nargs - nrequired);
+			for (size_t x = 0; x < diff; x++)
+				lua_pushnil(L);
 		}
+		nargs = nrequired + noptional;
 
-		LuaHelpers::PopChecked p;
+		LuaHelpers::PopChecked p(nargs);
 		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::PopChecked>(L, args, p);
 		return args;
 	}
@@ -409,12 +428,11 @@ namespace LuaCallback {
 
 void test(lua_State* L) {
 	int t;
-	boost::optional<int> b;
-	std::tie(t, b) = LuaCallback::getArguments<int, boost::optional<int>>(L, __FUNCTION__);
-	cout << "test: " << t << endl;
+	boost::optional<std::string> b;
+	std::tie(t, b) = LuaCallback::getArguments<int, boost::optional<std::string>>(L, __FUNCTION__);
+	cout << "test: " << t << " " << b << endl;
 }
 std::vector<LuaCallback::CFunc> funcTable = {{"test", &test}, {"test1", &test}};
-
 
 int main() {
 	//boost::optional<int> t;
