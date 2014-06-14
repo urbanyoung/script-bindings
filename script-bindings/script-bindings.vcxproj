@@ -73,12 +73,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="lua-bindings.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\test.lua" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="lua-bindings.hpp" />
     <ClInclude Include="tuple-iterate.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

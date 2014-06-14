@@ -18,12 +18,18 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="lua-bindings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\test.lua" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="tuple-iterate.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-bindings.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
