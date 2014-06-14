@@ -22,4 +22,9 @@
   <ItemGroup>
     <None Include="..\test.lua" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="tuple-iterate.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>
