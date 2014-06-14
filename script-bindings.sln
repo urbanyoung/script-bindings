@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "script-bindings", "script-b
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua-5.2.3", "lua-5.2.3\lua-5.2.3.vcxproj", "{F5B4C98D-66BD-4227-B292-D183D51CC6C3}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "old-system", "old-system\old-system.vcxproj", "{4710FB0D-A645-4D15-B67B-797E43EC82FE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -21,6 +23,10 @@ Global
 		{F5B4C98D-66BD-4227-B292-D183D51CC6C3}.Debug|Win32.Build.0 = Debug|Win32
 		{F5B4C98D-66BD-4227-B292-D183D51CC6C3}.Release|Win32.ActiveCfg = Release|Win32
 		{F5B4C98D-66BD-4227-B292-D183D51CC6C3}.Release|Win32.Build.0 = Release|Win32
+		{4710FB0D-A645-4D15-B67B-797E43EC82FE}.Debug|Win32.ActiveCfg = Debug|Win32
+		{4710FB0D-A645-4D15-B67B-797E43EC82FE}.Debug|Win32.Build.0 = Debug|Win32
+		{4710FB0D-A645-4D15-B67B-797E43EC82FE}.Release|Win32.ActiveCfg = Release|Win32
+		{4710FB0D-A645-4D15-B67B-797E43EC82FE}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

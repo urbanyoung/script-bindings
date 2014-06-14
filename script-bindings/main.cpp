@@ -25,7 +25,7 @@ namespace TupleHelpers {
 	{
 		static const std::size_t start = sizeof...(Tp)-1;
 		static const std::size_t next = I - 1;
-		static const bool value = I >= 0 && I <= start;
+		static const bool value = I >= 0 && I < sizeof...(Tp);
 	};
 
 	template<
@@ -418,8 +418,7 @@ public:
 		}
 
 		size_t nargs = sizeof...(ArgTypes);
-		size_t nresults = sizeof...(ResultTypes);
-		
+
 		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(L, args);
 
 		L.pcall(nargs, nresults);
@@ -521,7 +520,6 @@ int test(lua_State* L) {
 std::vector<LuaCallback::CFunc> funcTable = {{"test", &test}, {"test1", &test}};
 
 int main() {
-
 	try {
 		LuaState state;
 		LuaCallback::registerFunctions(state, funcTable.cbegin(), funcTable.cend());

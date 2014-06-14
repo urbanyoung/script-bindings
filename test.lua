@@ -4,6 +4,10 @@ function test_func(a,b,c)
 	return 1,2,3,{4,5,6}
 end
 
+function bench_func(str, n)
+	--print(str )
+end
+
 function test_func1(t, n)
 	for k,v in pairs(t) do
 		print(k .. " " .. v)
