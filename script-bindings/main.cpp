@@ -35,7 +35,7 @@ namespace TupleHelpers {
 		typename... Tp
 	>
 	inline typename std::enable_if<!Comparator<I, Tp...>::value>::type
-	citerate(lua_State*, const std::tuple<Tp...>&, F&)
+	citerate(const std::tuple<Tp...>&, F&)
 	{ }
 
 	template<
@@ -45,11 +45,11 @@ namespace TupleHelpers {
 		typename... Tp
 	>
 	inline typename std::enable_if<Comparator<I, Tp...>::value>::type
-	citerate(lua_State* l, const std::tuple<Tp...>& t, F& f)
+	citerate(const std::tuple<Tp...>& t, F& f)
 	{
 		typedef Comparator<I, Tp...> comparator;
-		f(l, std::get<I>(t));
-		citerate<Comparator, comparator::next, F, Tp...>(l, t, f);
+		f(std::get<I>(t));
+		citerate<Comparator, comparator::next, F, Tp...>(t, f);
 	}
 
 	// Helper for specifying start value
@@ -58,25 +58,13 @@ namespace TupleHelpers {
 		class F,
 		typename... Tp
 	>
-    inline void citerate(lua_State* l, const std::tuple<Tp...>& t, F& f)
+    inline void citerate(const std::tuple<Tp...>& t, F& f)
 	{
-		citerate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
+		citerate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(t, f);
 	}
 
-    template<
-        template<std::size_t, typename...>class Comparator,
-        class F,
-        typename... Tp
-    >
-    inline void citerate(lua_State* l, const std::tuple<Tp...>& t)
-    {
-        F f;
-        citerate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
-    }
-
-
 	// ---------------------------------------------------
-	/* couldn't get const versions working... easy fix, for now */
+	// non-const versions
 	template<
 		template<std::size_t, typename...>class Comparator,
 		std::size_t I,
@@ -84,7 +72,7 @@ namespace TupleHelpers {
 		typename... Tp
 	>
 	inline typename std::enable_if<!Comparator<I, Tp...>::value>::type
-	iterate(lua_State*, std::tuple<Tp...>&, F&)
+	iterate(std::tuple<Tp...>&, F&)
 	{ }
 
 	template<
@@ -94,11 +82,11 @@ namespace TupleHelpers {
 		typename... Tp
 	>
 	inline typename std::enable_if<Comparator<I, Tp...>::value>::type
-	iterate(lua_State* l, std::tuple<Tp...>& t, F& f)
+	iterate(std::tuple<Tp...>& t, F& f)
 	{
 		typedef Comparator<I, Tp...> comparator;
-		f(l, std::get<I>(t));
-		iterate<Comparator, comparator::next, F, Tp...>(l, t, f);
+		f(std::get<I>(t));
+		iterate<Comparator, comparator::next, F, Tp...>(t, f);
 	}
 
 	// Helper for specifying start value
@@ -107,21 +95,10 @@ namespace TupleHelpers {
 		class F,
 		typename... Tp
 	>
-    inline void iterate(lua_State* l, std::tuple<Tp...>& t, F& f)
+    inline void iterate(std::tuple<Tp...>& t, F& f)
 	{
-		iterate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
+		iterate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(t, f);
 	}
-
-    template<
-        template<std::size_t, typename...>class Comparator,
-        class F,
-        typename... Tp
-    >
-    inline void iterate(lua_State* l, std::tuple<Tp...>& t)
-    {
-        F f;
-        iterate<Comparator, Comparator<0, Tp...>::start, F, Tp...>(l, t, f);
-    }
 };
 
 class LuaException : public std::exception {
@@ -211,30 +188,36 @@ namespace LuaHelpers {
 	struct LuaNil {};
 
 	struct Push {
+		lua_State* L;
+
+		Push(lua_State* L)
+			: L(L)
+		{}
+
 		template <typename T>
 		typename std::enable_if<std::is_arithmetic<T>::value, void>::type
-			operator()(lua_State* L, const T& x)
+			operator()(const T& x)
 		{
 			lua_pushnumber(L, x);
 		}
 
-		void operator()(lua_State* L, const LuaAnyRef& x) {
+		void operator()(const LuaAnyRef& x) {
 			x.push(L);
 		}
 
-		void operator()(lua_State* L, const LuaNil&) {
+		void operator()(const LuaNil&) {
 			lua_pushnil(L);
 		}
 
-		void operator()(lua_State* L, const char* x) {
+		void operator()(const char* x) {
 			lua_pushstring(L, x);
 		}
-		void operator()(lua_State* L, const std::string& x) {
+		void operator()(const std::string& x) {
 			lua_pushstring(L, x.c_str());
 		}
 	};
 
-    template <> void Push::operator()<bool>(lua_State* L, const bool& x) {
+    template <> void Push::operator()<bool>(const bool& x) {
         lua_pushboolean(L, x);
     }
 
@@ -247,13 +230,14 @@ namespace LuaHelpers {
 		int n;
 		e_mode mode;
 		bool err;
+		lua_State* L;
 
-		Pop(int n, e_mode mode)
-			: n(n), mode(mode), err(false)
+		Pop(lua_State* L, int n, e_mode mode)
+			: L(L), n(n), mode(mode), err(false)
 		{}
 
 		template <typename Y>
-		void raise_error(lua_State* L, int got) {
+		void raise_error(int got) {
 			if (mode == e_mode::kArg) {
 				auto f = boost::format("expected %s, got %s") % ctype_name<Y>() % lua_typename(L, got);
 				luaL_argerror(L, n, f.str().c_str());
@@ -268,7 +252,7 @@ namespace LuaHelpers {
 		}
 
 		template <typename Y>
-		void pop_number_or_bool(lua_State* L, Y& x) {
+		void pop_number_or_bool(Y& x) {
 			const char* str;
 			char* end;
 			int ltype = lua_type(L, -1);
@@ -283,10 +267,10 @@ namespace LuaHelpers {
 				str = lua_tostring(L, -1);
 				x = static_cast<Y>(strtol(str, &end, 10));
 				if (*end != '\0')
-					raise_error<Y>(L, ltype);
+					raise_error<Y>(ltype);
 				break;
 			default:
-				raise_error<Y>(L, ltype);
+				raise_error<Y>(ltype);
 				break;
 			}
 			pop(L);
@@ -294,12 +278,12 @@ namespace LuaHelpers {
 
 		template <typename T>
 		typename std::enable_if<std::is_arithmetic<T>::value, void>::type 
-			operator()(lua_State* L, T& x)
+			operator()(T& x)
 		{			
-			pop_number_or_bool(L, x);
+			pop_number_or_bool(x);
 		}
 
-		void operator()(lua_State* L, std::string& x) {
+		void operator()(std::string& x) {
 			int ltype = lua_type(L, -1);
 			switch (ltype) {
 			case LUA_TBOOLEAN:
@@ -313,31 +297,31 @@ namespace LuaHelpers {
 				x = "nil";
 				break;
 			default:
-				raise_error<std::string>(L, ltype);
+				raise_error<std::string>(ltype);
 			}
 			pop(L);
 		}
 
-		void operator()(lua_State* L, LuaAnyRef& r) {
+		void operator()(LuaAnyRef& r) {
 			r.pop(L);
 			n--;
 		}
 
 		template <typename Y>
-		void operator()(lua_State* L, boost::optional<Y>& x) {
+		void operator()(boost::optional<Y>& x) {
 			if (lua_type(L, -1) == LUA_TNIL) {
 				pop(L);
 			} else {
 				Y val;
-				operator()(L, val);
+				operator()(val);
 				x = val;
 			}
 		}
 	};
 
-    template <> void Pop::operator()<bool>(lua_State* L, bool& x) {
+    template <> void Pop::operator()<bool>(bool& x) {
         int x1;
-        pop_number_or_bool(L, x1);
+        pop_number_or_bool(x1);
         x = (x1 == 1);
     }
 
@@ -419,14 +403,15 @@ public:
 
 		size_t nargs = sizeof...(ArgTypes);
 
-		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(L, args);
+		LuaHelpers::Push push(L);
+		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(args, push);
 
 		L.pcall(nargs, nresults);
 
 		std::tuple<ResultTypes...> results;
-		LuaHelpers::Pop p(nresults, LuaHelpers::Pop::e_mode::kRet);
-		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, results, p);
-		err = p.err;
+		LuaHelpers::Pop pop(L, nresults, LuaHelpers::Pop::e_mode::kRet);
+		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(results, pop);
+		err = pop.err;
 		return results;
 	}
 };
@@ -495,14 +480,15 @@ namespace LuaCallback {
 		}
 		nargs = nrequired + noptional;
 
-		LuaHelpers::Pop p(nargs, LuaHelpers::Pop::e_mode::kArg);
-		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(L, args, p);
+		LuaHelpers::Pop p(L, nargs, LuaHelpers::Pop::e_mode::kArg);
+		TupleHelpers::iterate<TupleHelpers::reverse_comparator, LuaHelpers::Pop>(args, p);
 		return args;
 	}
 
 	template <typename... Types>
 	int pushReturns(lua_State* L, const std::tuple<Types...>& t) {
-		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(L, t);
+		LuaHelpers::Push p(L);
+		TupleHelpers::citerate<TupleHelpers::forward_comparator, LuaHelpers::Push>(t, p);
 		return sizeof...(Types);
 	}
 };
