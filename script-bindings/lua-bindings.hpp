@@ -74,6 +74,12 @@ namespace lua {
 			lua_pushnumber(L, x);
 		}
 
+		template <typename T>
+		void operator()(const boost::optional<T>& x) {
+			if (!x) operator()(types::Nil());
+			else operator()(*x);
+		}
+
 		void operator()(const types::AnyRef& x);
 		void operator()(const types::Nil&);
 		void operator()(const char* x);

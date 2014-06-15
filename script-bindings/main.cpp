@@ -2,8 +2,6 @@
 #include <tuple>
 #include <stdexcept>
 #include <string>
-#include <boost/optional.hpp>
-#include <boost/format.hpp>
 #include <vector>
 #include "lua-bindings.hpp"
 
