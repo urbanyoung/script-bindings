@@ -8,6 +8,7 @@
 #include "tuple-iterate.hpp"
 
 namespace lua {
+
 	class Exception : public std::exception {
 		const std::string msg;
 	public:
@@ -74,12 +75,6 @@ namespace lua {
 			lua_pushnumber(L, x);
 		}
 
-		template <typename T>
-		void operator()(const boost::optional<T>& x) {
-			if (!x) operator()(types::Nil());
-			else operator()(*x);
-		}
-
 		void operator()(const types::AnyRef& x);
 		void operator()(const types::Nil&);
 		void operator()(const char* x);
@@ -90,8 +85,8 @@ namespace lua {
 
 	struct Pop {
 		enum class e_mode {
-			kArg,
-			kRet
+			kRaiseError,
+			kDontRaiseError
 		};
 
 		int n;
@@ -99,13 +94,13 @@ namespace lua {
 		bool err;
 		lua_State* L;
 
-	private:
+	protected:
 
 		void pop(lua_State* L);
 
 		template <typename Y>
 		void raise_error(int got) {
-			if (mode == e_mode::kArg) {
+			if (mode == e_mode::kRaiseError) {
 				auto f = boost::format("expected %s, got %s") % types::ctype_name<Y>() % lua_typename(L, got);
 				luaL_argerror(L, n, f.str().c_str());
 			} else {
@@ -151,17 +146,6 @@ namespace lua {
 
 		void operator()(std::string& x);
 		void operator()(types::AnyRef& r);
-
-		template <typename Y>
-		void operator()(boost::optional<Y>& x) {
-			if (lua_type(L, -1) == LUA_TNIL) {
-				pop(L);
-			} else {
-				Y val;
-				operator()(val);
-				x = val;
-			}
-		}
 	};
 
 	template <> void Pop::operator()<bool>(bool& x);
@@ -211,7 +195,7 @@ namespace lua {
 			return err;
 		}
 
-		template <typename... ArgTypes>
+		template <class PushType, class PopType, typename... ArgTypes>
 		std::tuple<ResultTypes...> call(const std::string& func, const std::tuple<ArgTypes...>& args) {
 			lua_getglobal(L, func.c_str());
 			if (lua_type(L, -1) != LUA_TFUNCTION) {
@@ -221,14 +205,14 @@ namespace lua {
 
 			size_t nargs = sizeof...(ArgTypes);
 
-			Push push(L);
+			PushType push(L);
 			TupleHelpers::citerate<TupleHelpers::forward_comparator, Push>(args, push);
 
 			L.pcall(nargs, nresults);
 
 			std::tuple<ResultTypes...> results;
-			Pop pop(L, nresults, Pop::e_mode::kRet);
-			TupleHelpers::iterate<TupleHelpers::reverse_comparator, Pop>(results, pop);
+			PopType pop(L, nresults, Pop::e_mode::kDontRaiseError);
+			TupleHelpers::iterate<TupleHelpers::reverse_comparator, PopType>(results, pop);
 			err = pop.err;
 			return results;
 		}
@@ -280,7 +264,7 @@ namespace lua {
 		//
 		// -------------------------------------------------------------------------------------
 
-		template <typename... ResultTypes>
+		template <class PopType, typename... ResultTypes>
 		std::tuple<ResultTypes...> getArguments(lua_State* L, const char* funcname) {
 			std::tuple<ResultTypes...> args;
 			static const size_t noptional = count_optional(args);
@@ -298,15 +282,15 @@ namespace lua {
 			}
 			nargs = nrequired + noptional;
 
-			Pop p(L, nargs, Pop::e_mode::kArg);
-			TupleHelpers::iterate<TupleHelpers::reverse_comparator, Pop>(args, p);
+			PopType p(L, nargs, Pop::e_mode::kRaiseError);
+			TupleHelpers::iterate<TupleHelpers::reverse_comparator, PopType>(args, p);
 			return args;
 		}
 
-		template <typename... Types>
+		template <class PushType, typename... Types>
 		int pushReturns(lua_State* L, const std::tuple<Types...>& t) {
-			Push p(L);
-			TupleHelpers::citerate<TupleHelpers::forward_comparator, Push>(t, p);
+			PushType p(L);
+			TupleHelpers::citerate<TupleHelpers::forward_comparator, PushType>(t, p);
 			return sizeof...(Types);
 		}
 	}

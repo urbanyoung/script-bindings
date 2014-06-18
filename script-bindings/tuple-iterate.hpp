@@ -67,7 +67,7 @@ namespace TupleHelpers {
 	template<
 		template<std::size_t, typename...>class Comparator,
 		std::size_t I,
-	class F,
+		class F,
 		typename... Tp
 	>
 	inline typename std::enable_if<Comparator<I, Tp...>::value>::type
@@ -81,7 +81,7 @@ namespace TupleHelpers {
 	// Helper for specifying start value
 	template<
 		template<std::size_t, typename...>class Comparator,
-	class F,
+		class F,
 		typename... Tp
 	>
 	inline void iterate(std::tuple<Tp...>& t, F& f)
